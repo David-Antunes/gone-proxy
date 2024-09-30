@@ -1,0 +1,3 @@
+[submodule "gone-rtt"]
+	path = gone-rtt
+  url = https://github.com/David-Antunes/gone-rtt
