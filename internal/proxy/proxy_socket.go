@@ -196,7 +196,11 @@ func (p *ProxySocket) Transmit() {
 			for i := 1; i < batchSize; i++ {
 				frames = append(frames, <-p.queue)
 			}
-			p.send(frames)
+			err := p.send(frames)
+			if err != nil {
+				p.Close()
+				return
+			}
 		}
 	}
 }
@@ -208,11 +212,15 @@ func (p *ProxySocket) SendFrame(frame *xdp.Frame) {
 	if len(txDescs) > 0 {
 		outFrame := p.sock.GetFrame(txDescs[0])
 		txDescs[0].Len = uint32(copy(outFrame, frame.FramePointer[:frame.FrameSize]))
-		p.sock.Transmit(txDescs)
+		_, err := p.sock.Transmit(txDescs)
+		if err != nil {
+			proxyLog.Println(err)
+			return
+		}
 	}
 }
 
-func (p *ProxySocket) send(frames []*xdp.Frame) {
+func (p *ProxySocket) send(frames []*xdp.Frame) error {
 
 	txDescs := p.getTransmitDescs(len(frames))
 
@@ -220,7 +228,12 @@ func (p *ProxySocket) send(frames []*xdp.Frame) {
 		outFrame := p.sock.GetFrame(txDescs[i])
 		txDescs[i].Len = uint32(copy(outFrame, frames[i].FramePointer))
 	}
-	p.sock.Transmit(txDescs)
+	_, err := p.sock.Transmit(txDescs)
+	if err != nil {
+		proxyLog.Println(err)
+		return err
+	}
+	return nil
 }
 
 func (p *ProxySocket) getTransmitDescs(number int) []ebpf.Desc {
