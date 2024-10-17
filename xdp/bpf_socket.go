@@ -32,7 +32,6 @@ func CreateXdpBpfSock(queue int, ifname string) (*XdpBpfSock, error) {
 	if err = program.Register(queue, socket.sock.FD()); err != nil {
 		panic(err)
 	}
-	socket.sock.Fill(socket.sock.GetDescs(socket.sock.NumFreeFillSlots(), true))
 	return &XdpBpfSock{socket, *program}, nil
 
 }

@@ -41,21 +41,21 @@ var metricsLog = log.New(os.Stdout, "METRICS INFO: ", log.Ltime)
 
 func NewMetricsManager(iface xdp.Isocket, mac net.HardwareAddr, ip net.IP, port int, endpoint *RttConnection, socketPath string, timeout time.Duration, numTests int) *MetricsManager {
 
-	fd, err := syscall.Socket(syscall.AF_PACKET, syscall.SOCK_RAW, int(htons(syscall.ETH_P_IP)))
-	if err != nil {
-		internal.ShutdownAndLog(err)
-		return nil
-	}
-
-	ifi, err := net.InterfaceByName("br0")
-	if err != nil {
-		internal.ShutdownAndLog(err)
-		return nil
-	}
-	addr := &syscall.SockaddrLinklayer{
-		Protocol: htons(syscall.ETH_P_IP),
-		Ifindex:  ifi.Index,
-	}
+	//fd, err := syscall.Socket(syscall.AF_PACKET, syscall.SOCK_RAW, int(htons(syscall.ETH_P_IP)))
+	//if err != nil {
+	//	internal.ShutdownAndLog(err)
+	//	return nil
+	//}
+	//
+	//ifi, err := net.InterfaceByName("br0")
+	//if err != nil {
+	//	internal.ShutdownAndLog(err)
+	//	return nil
+	//}
+	//addr := &syscall.SockaddrLinklayer{
+	//	Protocol: htons(syscall.ETH_P_IP),
+	//	Ifindex:  ifi.Index,
+	//}
 
 	metricsSocket, err := NewMetricsSocket(socketPath)
 	if err != nil {
@@ -65,12 +65,12 @@ func NewMetricsManager(iface xdp.Isocket, mac net.HardwareAddr, ip net.IP, port 
 	go metricsSocket.StartSocket()
 
 	return &MetricsManager{
-		iface:           iface,
-		mac:             mac,
-		ip:              ip,
-		port:            port,
-		fd:              fd,
-		addr:            addr,
+		iface: iface,
+		mac:   mac,
+		ip:    ip,
+		port:  port,
+		//fd:              fd,
+		//addr:            addr,
 		receiveLatency:  0,
 		transmitLatency: 0,
 		tests:           make([]api.RTTRequest, 5),
@@ -107,20 +107,24 @@ func (manager *MetricsManager) Start() {
 
 	var frames []*xdp.Frame
 	var err error
-	time.Sleep(time.Second)
+	time.Sleep(5 * time.Second)
 	for {
 		manager.tests = make([]api.RTTRequest, 0, manager.numTests)
-
-		for i := 0; i < 5; i++ {
+		for i := 0; i < manager.numTests; i++ {
 			_, err = manager.sendTest()
+			//metricsLog.Println("Sending Frame")
 			if err != nil {
 				metricsLog.Println(err)
 				break
 			}
-			frames, err = manager.iface.Receive(int(time.Second.Milliseconds()))
-			if len(frames) == 0 {
-				metricsLog.Println("No frames received")
-				break
+			for {
+				frames, err = manager.iface.Receive(-1)
+				if len(frames) == 0 {
+					//metricsLog.Println("No frames received")
+					continue
+				} else {
+					break
+				}
 			}
 			req := &api.RTTRequest{}
 			for _, frame := range frames {
@@ -128,22 +132,18 @@ func (manager *MetricsManager) Start() {
 				if err != nil {
 					metricsLog.Println(err)
 					continue
-				} else {
-					break
 				}
+				req.EndTime = time.Now()
+				manager.tests = append(manager.tests, *req)
 			}
-			req.EndTime = time.Now()
-
-			manager.tests = append(manager.tests, *req)
 		}
-		if len(manager.tests) == manager.numTests {
+		if len(manager.tests) >= manager.numTests {
 			manager.calculateAvg()
 			manager.metricsSocket.sendRTT(manager.receiveLatency, manager.transmitLatency)
 		}
 
 		time.Sleep(manager.timeout)
 	}
-
 }
 
 func (manager *MetricsManager) calculateAvg() {
@@ -155,8 +155,8 @@ func (manager *MetricsManager) calculateAvg() {
 		accTransmit += test.EndTime.Sub(test.TransmitTime)
 	}
 
-	manager.receiveLatency = accReceive / time.Duration(manager.numTests)
-	manager.transmitLatency = accTransmit / time.Duration(manager.numTests)
+	manager.receiveLatency = accReceive / time.Duration(len(manager.tests))
+	manager.transmitLatency = accTransmit / time.Duration(len(manager.tests))
 
 	metricsLog.Println("receiveLatency:", manager.receiveLatency)
 	metricsLog.Println("transmitLatency:", manager.transmitLatency)
@@ -204,11 +204,17 @@ func (manager *MetricsManager) sendTest() (api.RTTRequest, error) {
 		internal.ShutdownAndLog(err)
 		return api.RTTRequest{}, err
 	}
-
-	if err = syscall.Sendto(manager.fd, buf.Bytes(), 0, manager.addr); err != nil {
-		internal.ShutdownAndLog(err)
-		return api.RTTRequest{}, err
-	}
+	manager.iface.SendFrame(&xdp.Frame{
+		FramePointer:   buf.Bytes(),
+		FrameSize:      len(buf.Bytes()),
+		Time:           time.Time{},
+		MacOrigin:      "",
+		MacDestination: "",
+	})
+	//if err = syscall.Sendto(manager.fd, buf.Bytes(), 0, manager.addr); err != nil {
+	//	internal.ShutdownAndLog(err)
+	//	return api.RTTRequest{}, err
+	//}
 	return api.RTTRequest{}, nil
 }
 

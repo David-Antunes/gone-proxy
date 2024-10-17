@@ -19,8 +19,7 @@ type XdpSock struct {
 func (socket *XdpSock) ID() string {
 	return socket.id.String()
 }
-
-func CreateXdpSock(queue int, ifname string) (*XdpSock, error) {
+func CreateCustomXdpSock(queue int, ifname string, opts *xdp.SocketOptions) (*XdpSock, error) {
 
 	link, err := netlink.LinkByName(ifname)
 
@@ -28,7 +27,7 @@ func CreateXdpSock(queue int, ifname string) (*XdpSock, error) {
 		return nil, err
 	}
 
-	xsk, err := xdp.NewSocket(link.Attrs().Index, queue, &DefaultSocketOptions)
+	xsk, err := xdp.NewSocket(link.Attrs().Index, queue, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -36,6 +35,10 @@ func CreateXdpSock(queue int, ifname string) (*XdpSock, error) {
 	descs := xsk.GetDescs(xsk.NumFreeTxSlots(), false)
 
 	return &XdpSock{uuid.New(), *xsk, link, descs}, nil
+}
+
+func CreateXdpSock(queue int, ifname string) (*XdpSock, error) {
+	return CreateCustomXdpSock(queue, ifname, &xdp.DefaultSocketOptions)
 }
 
 func (socket *XdpSock) Receive(timeout int) ([]*Frame, error) {
@@ -74,7 +77,12 @@ func (socket *XdpSock) SendFrame(frame *Frame) {
 	if len(txDescs) > 0 {
 		outFrame := socket.sock.GetFrame(txDescs[0])
 		txDescs[0].Len = uint32(copy(outFrame, frame.FramePointer[:frame.FrameSize]))
-		socket.sock.Transmit(txDescs)
+		_, err := socket.sock.Transmit(txDescs)
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+
 	}
 }
 
@@ -86,7 +94,11 @@ func (socket *XdpSock) Send(frames []*Frame) {
 		outFrame := socket.sock.GetFrame(txDescs[i])
 		txDescs[i].Len = uint32(copy(outFrame, frames[i].FramePointer))
 	}
-	socket.sock.Transmit(txDescs)
+	_, err := socket.sock.Transmit(txDescs)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
 }
 
 func (socket *XdpSock) getTransmitDescs(number int) []xdp.Desc {
@@ -94,15 +106,19 @@ func (socket *XdpSock) getTransmitDescs(number int) []xdp.Desc {
 		socket.descs = socket.sock.GetDescs(socket.sock.NumFreeTxSlots(), false)
 
 		if len(socket.descs) < number {
-			_, _, err := socket.sock.Poll(-1)
+			_, _, err := socket.sock.Poll(1)
 			if err != nil {
-				fmt.Println(err)
+				socket.Close()
+				return socket.descs
 			}
+		} else {
+			continue
 		}
 	}
 	descs := socket.descs[:number]
 	socket.descs = socket.descs[number:]
 	return descs
+
 }
 
 func (socket *XdpSock) Close() {

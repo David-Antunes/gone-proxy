@@ -25,15 +25,15 @@ func cleanup(d *daemon.Daemon, m *metricsManager.MetricsManager) {
 	}()
 }
 func main() {
-
 	viper.SetConfigFile(".env")
 	viper.ReadInConfig()
 	viper.SetDefault("PROXY_SERVER", "/tmp/proxy-server.sock")
 	viper.SetDefault("PROXY_RTT_SOCKET", "/tmp/proxy-rtt.sock")
 	viper.SetDefault("TIMEOUT", 60000)
-	viper.SetDefault("NUM_TESTS", 5)
+	viper.SetDefault("NUM_TESTS", 100)
 	viper.SetConfigType("env")
 	viper.WriteConfigAs(".env")
+	viper.AutomaticEnv()
 
 	for id, value := range viper.AllSettings() {
 		proxyLog.Println(id, value)
