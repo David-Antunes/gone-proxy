@@ -35,6 +35,13 @@ func main() {
 	viper.WriteConfigAs(".env")
 	viper.AutomaticEnv()
 
+	os.Remove("/tmp/gone-proxy.env")
+	viper.SetConfigFile("/tmp/gone-proxy.env")
+	err := viper.WriteConfig()
+	if err != nil {
+		proxyLog.Println(err)
+	}
+
 	for id, value := range viper.AllSettings() {
 		proxyLog.Println(id, value)
 	}
