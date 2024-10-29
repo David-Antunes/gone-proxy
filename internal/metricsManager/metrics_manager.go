@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"net"
 	"os"
 	"syscall"
@@ -110,6 +111,7 @@ func (manager *MetricsManager) Start() {
 	time.Sleep(5 * time.Second)
 	for {
 		manager.tests = make([]api.RTTRequest, 0, manager.numTests)
+		obs := time.Duration(math.MaxInt)
 		for i := 0; i < manager.numTests; i++ {
 			_, err = manager.sendTest()
 			//metricsLog.Println("Sending Frame")
@@ -134,33 +136,33 @@ func (manager *MetricsManager) Start() {
 					continue
 				}
 				req.EndTime = time.Now()
-				manager.tests = append(manager.tests, *req)
+				obs = time.Duration(math.Min(float64(obs), math.Min(float64(req.ReceiveTime.Sub(req.StartTime)), float64(req.EndTime.Sub(req.TransmitTime)))))
 			}
 		}
-		if len(manager.tests) >= manager.numTests {
-			manager.calculateAvg()
-			manager.metricsSocket.sendRTT(manager.receiveLatency, manager.transmitLatency)
+		manager.metricsSocket.sendRTT(obs, obs)
+		if manager.timeout > 0 {
+			time.Sleep(manager.timeout)
+		} else {
+			return
 		}
-
-		time.Sleep(manager.timeout)
 	}
 }
 
-func (manager *MetricsManager) calculateAvg() {
-	var accReceive time.Duration
-	var accTransmit time.Duration
-
-	for _, test := range manager.tests {
-		accReceive += test.ReceiveTime.Sub(test.StartTime)
-		accTransmit += test.EndTime.Sub(test.TransmitTime)
-	}
-
-	manager.receiveLatency = accReceive / time.Duration(len(manager.tests))
-	manager.transmitLatency = accTransmit / time.Duration(len(manager.tests))
-
-	metricsLog.Println("receiveLatency:", manager.receiveLatency)
-	metricsLog.Println("transmitLatency:", manager.transmitLatency)
-}
+//func (manager *MetricsManager) calculateAvg() {
+//	var accReceive time.Duration
+//	var accTransmit time.Duration
+//
+//	for _, test := range manager.tests {
+//		accReceive += test.ReceiveTime.Sub(test.StartTime)
+//		accTransmit += test.EndTime.Sub(test.TransmitTime)
+//	}
+//
+//	manager.receiveLatency = accReceive / time.Duration(len(manager.tests))
+//	manager.transmitLatency = accTransmit / time.Duration(len(manager.tests))
+//
+//	metricsLog.Println("receiveLatency:", manager.receiveLatency)
+//	metricsLog.Println("transmitLatency:", manager.transmitLatency)
+//}
 
 func (manager *MetricsManager) sendTest() (api.RTTRequest, error) {
 	req, err := json.Marshal(&api.RTTRequest{
